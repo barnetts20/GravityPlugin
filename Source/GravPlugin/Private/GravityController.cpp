@@ -10,7 +10,8 @@ void AGravityController::UpdateRotation(float DeltaTime)
     {
         if (UCharacterMovementComponent* MoveComp = PlayerCharacter->GetCharacterMovement())
         {
-            GravityDirection = MoveComp->GetGravityDirection();
+            //Transition towards the desired gravity vector
+            GravityDirection = FMath::Lerp(LastFrameGravity, MoveComp->GetGravityDirection(), DeltaTime * DeltaSmoothing);
         }
     }
 
@@ -24,7 +25,7 @@ void AGravityController::UpdateRotation(float DeltaTime)
         FQuat TargetRotationQuat = CurrentRotationQuat * FQuat(ViewRotation);
 
         // Interpolate using Slerp for smooth transition
-        FQuat SmoothedRotation = FQuat::Slerp(FQuat(ViewRotation), TargetRotationQuat, DeltaTime * 10);
+        FQuat SmoothedRotation = FQuat::Slerp(FQuat(ViewRotation), TargetRotationQuat, DeltaTime);
         ViewRotation = SmoothedRotation.Rotator();
     }
 
@@ -55,6 +56,7 @@ void AGravityController::UpdateRotation(float DeltaTime)
     }
 }
 
+//Convert from world rotation to gravity relative rotation
 FRotator AGravityController::GetGravityRelativeRotation(FRotator Rotation, FVector GravityDirection)
 {
     if (!GravityDirection.Equals(FVector::DownVector))
@@ -66,6 +68,7 @@ FRotator AGravityController::GetGravityRelativeRotation(FRotator Rotation, FVect
     return Rotation;
 }
 
+//Convert from gravity relative rotation to world rotation
 FRotator AGravityController::GetGravityWorldRotation(FRotator Rotation, FVector GravityDirection)
 {
     if (!GravityDirection.Equals(FVector::DownVector))
