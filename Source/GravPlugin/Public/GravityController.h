@@ -15,8 +15,7 @@ class AGravityController : public APlayerController
 
 public:
 	double Pitch = 0; //Track input pitch accumulation independantly from controller rotation
-	double MaxPitch = 75; //Max camera pitch, at >= 90 gimbal locking can occur
-
+	double MaxPitch = 60; //Max camera pitch, at >= 90 gimbal locking can occur
 	double DeltaSmoothing = 10; //10 means changes between gravity vectors will transition over approx. .1 sec, 100 .01 etc
 
 	FVector TransitionGravityDirection = FVector::DownVector;

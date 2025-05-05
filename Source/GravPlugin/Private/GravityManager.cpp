@@ -28,6 +28,7 @@ void UGravityManager::Initialize(FSubsystemCollectionBase& Collection) // Make s
 	}
 	UE_LOG(LogTemp, Log, TEXT("GravityManager Initialized")); // Use your class name in logs
 }
+
 void UGravityManager::Deinitialize() // Make sure this matches your class name
 {
 	UE_LOG(LogTemp, Log, TEXT("GravityManager Deinitialized")); // Use your class name in logs
@@ -35,6 +36,7 @@ void UGravityManager::Deinitialize() // Make sure this matches your class name
 	ActorZoneOverlaps.Empty();
 	Super::Deinitialize();
 }
+
 bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const // Make sure this matches your class name
 {
 	if (UWorld* World = Cast<UWorld>(Outer))
@@ -86,12 +88,11 @@ void UGravityManager::NotifyObjectEnteredZone(AActor* AffectedActor, AGravityZon
 	if (AffectedActor && GravityZone && (Cast<ACharacter>(AffectedActor) || AffectedActor->FindComponentByClass<UPrimitiveComponent>()))
 	{
 		ActorZoneOverlaps.FindOrAdd(AffectedActor).Add(GravityZone);
-		//UE_LOG(LogTemp, Log, TEXT("%s entered zone %s (Component: %s)"), *AffectedActor->GetName(), *GravityZone->GetName(), OverlappingComponent ? *OverlappingComponent->GetName() : TEXT("None"));
 	}
 }
-void UGravityManager::NotifyObjectLeftZone(AActor* AffectedActor, AGravityZone* GravityZone) // Make sure this matches your class name
+
+void UGravityManager::NotifyObjectLeftZone(AActor* AffectedActor, AGravityZone* GravityZone)
 {
-	// We only care about valid actors and zones
 	if (AffectedActor && GravityZone)
 	{
 		if (TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor))
@@ -118,6 +119,7 @@ void UGravityManager::Tick(float DeltaTime)
 		ApplyGravityToActorComponents(AffectedActor, NetGravityVector);
 	}
 }
+
 TStatId UGravityManager::GetStatId() const
 {
 	RETURN_QUICK_DECLARE_CYCLE_STAT(UGravityManager, STATGROUP_Tickables);
@@ -128,15 +130,15 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 {
 	FVector NetGravity = FVector::ZeroVector;
 
+	//Early termination conditions
 	if (!AffectedActor) return NetGravity;
-	
 	const TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor);
 	if (!OverlappingZones || OverlappingZones->Num() == 0)
 	{
 		return NetGravity;
 	}
 
-	// Check if the actor is a Character and if they are currently falling
+	// Check if the actor is a Character and if they are "grounded"
 	bool bIsCharacterGrounded = false;
 	ACharacter* Character = Cast<ACharacter>(AffectedActor);
 	if (Character)
@@ -154,34 +156,26 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 	{
 		if (Zone) {
 			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
-			if (Zone && Zone->Priority > HighestPriority)
+			if (Zone->Priority > HighestPriority)
 			{
 				NetGravity = FVector::ZeroVector;
 				HighestPriority = Zone->Priority;
-
-				if (bIsCharacterGrounded) {
-					if (NetGravity.Size() < ZoneGravity.Size()) {
-						NetGravity = ZoneGravity;
-					}
-				}
-				else {
-					NetGravity += Zone->GetGravityVector(ActorLocation);
-				}
+				NetGravity = ZoneGravity;
 			}
-			else if (Zone && Zone->Priority == HighestPriority) {
-				if (bIsCharacterGrounded) {
-					if (NetGravity.Size() < ZoneGravity.Size()) {
-						NetGravity = ZoneGravity;
-					}
+			else if (Zone->Priority == HighestPriority) {
+				//If it is a character and the character is "grounded" we only apply the strongest gravity vector
+				if (bIsCharacterGrounded && NetGravity.Size() < ZoneGravity.Size()) {
+					NetGravity = ZoneGravity;
 				}
 				else {
-					NetGravity += Zone->GetGravityVector(ActorLocation);
+					NetGravity += ZoneGravity;
 				}
 			}
 		}	
 	}
 	return NetGravity;
 }
+
 void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const FVector& NetGravityVector)
 {
 	if (!AffectedActor) return;
@@ -198,15 +192,14 @@ void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const
 		{
 			MovementComp->GravityScale = NetGravityVector.Size() / 980.0; // Assuming 1.0 is the default scale, 9.8 m/s as our baseline
 			auto gravDir = NetGravityVector.GetSafeNormal();
-			MovementComp->SetGravityDirection(gravDir.IsNearlyZero() ? Character->GetActorUpVector() * -1 : gravDir);
+			MovementComp->SetGravityDirection(gravDir.IsNearlyZero() ? Character->GetActorUpVector() * -1.0 : gravDir);
 		}
 		return;
 	}
 
-	// --- Case 2: Primitive Components (including Ragdolls) ---
+	// --- Case 2: Primitive Components ---
 	TArray<UPrimitiveComponent*> PrimitiveComponents;
 	AffectedActor->GetComponents<UPrimitiveComponent>(PrimitiveComponents);
-
 	for (UPrimitiveComponent* PrimComp : PrimitiveComponents)
 	{
 		if (PrimComp && PrimComp->IsSimulatingPhysics() && !PrimComp->IsGravityEnabled())
