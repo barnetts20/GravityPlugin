@@ -136,22 +136,50 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 		return NetGravity;
 	}
 
+	// Check if the actor is a Character and if they are currently falling
+	bool bIsCharacterGrounded = false;
+	ACharacter* Character = Cast<ACharacter>(AffectedActor);
+	if (Character)
+	{
+		if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+		{
+			bIsCharacterGrounded = !MovementComp->IsFalling();
+		}
+	}
+
 	//Accumulate gravity in one pass
 	FVector ActorLocation = AffectedActor->GetActorLocation();
 	int32 HighestPriority = -INT_MAX;
 	for (AGravityZone* Zone : *OverlappingZones)
 	{
-		if (Zone && Zone->Priority > HighestPriority)
-		{
-			NetGravity = FVector::ZeroVector;
-			HighestPriority = Zone->Priority;
-			NetGravity += Zone->GetGravityVector(ActorLocation);
-		}
-		else if (Zone && Zone->Priority == HighestPriority) {
-			NetGravity += Zone->GetGravityVector(ActorLocation);
-		}
-	}
+		if (Zone) {
+			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
+			if (Zone && Zone->Priority > HighestPriority)
+			{
+				NetGravity = FVector::ZeroVector;
+				HighestPriority = Zone->Priority;
 
+				if (bIsCharacterGrounded) {
+					if (NetGravity.Size() < ZoneGravity.Size()) {
+						NetGravity = ZoneGravity;
+					}
+				}
+				else {
+					NetGravity += Zone->GetGravityVector(ActorLocation);
+				}
+			}
+			else if (Zone && Zone->Priority == HighestPriority) {
+				if (bIsCharacterGrounded) {
+					if (NetGravity.Size() < ZoneGravity.Size()) {
+						NetGravity = ZoneGravity;
+					}
+				}
+				else {
+					NetGravity += Zone->GetGravityVector(ActorLocation);
+				}
+			}
+		}	
+	}
 	return NetGravity;
 }
 void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const FVector& NetGravityVector)
