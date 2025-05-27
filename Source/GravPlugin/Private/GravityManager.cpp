@@ -87,6 +87,12 @@ void UGravityManager::NotifyObjectEnteredZone(AActor* AffectedActor, AGravityZon
 {
 	if (AffectedActor && GravityZone && (Cast<ACharacter>(AffectedActor) || AffectedActor->FindComponentByClass<UPrimitiveComponent>()))
 	{
+		FPermissionListOwners ActorTags = AffectedActor->Tags;
+		for (FName ATag : ActorTags) {
+			if (GravityZone->ExclusionTags.Contains(ATag)) {
+				return;
+			}
+		}
 		ActorZoneOverlaps.FindOrAdd(AffectedActor).Add(GravityZone);
 	}
 }
@@ -115,8 +121,14 @@ void UGravityManager::Tick(float DeltaTime)
 			ActorZoneOverlaps.Remove(AffectedActor);
 			continue;
 		}
-		FVector NetGravityVector = CalculateNetGravityVectorForActor(AffectedActor);
-		ApplyGravityToActorComponents(AffectedActor, NetGravityVector);
+		if (UseGravity) {
+			FVector NetGravityVector = CalculateNetGravityVectorForActor(AffectedActor);
+			ApplyGravityToActorComponents(AffectedActor, NetGravityVector);
+		}
+		if (UseDampen) {
+			FVector MaxDampenVector = CalculateMaxDampingVectorForActor(AffectedActor);
+			ApplyDampingToActorComponents(AffectedActor, MaxDampenVector);
+		}
 	}
 }
 
@@ -152,28 +164,91 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 	//Accumulate gravity in one pass
 	FVector ActorLocation = AffectedActor->GetActorLocation();
 	int32 HighestPriority = -INT_MAX;
+	TArray<AGravityZone*> PriorityZones;
 	for (AGravityZone* Zone : *OverlappingZones)
 	{
 		if (Zone) {
-			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
 			if (Zone->Priority > HighestPriority)
 			{
-				NetGravity = FVector::ZeroVector;
 				HighestPriority = Zone->Priority;
-				NetGravity = ZoneGravity;
+				PriorityZones.Empty();
+				PriorityZones.Add(Zone);
 			}
 			else if (Zone->Priority == HighestPriority) {
-				//If it is a character and the character is "grounded" we only apply the strongest gravity vector
-				if (bIsCharacterGrounded && NetGravity.Size() < ZoneGravity.Size()) {
-					NetGravity = ZoneGravity;
-				}
-				else {
-					NetGravity += ZoneGravity;
-				}
+				PriorityZones.Add(Zone);
+
 			}
 		}	
 	}
+	if (bIsCharacterGrounded) {
+		FVector MaxGravityVector = FVector::ZeroVector;
+		for (AGravityZone* Zone : PriorityZones) {
+			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
+			if (MaxGravityVector.Size() < ZoneGravity.Size()) {
+				MaxGravityVector = ZoneGravity;
+			}
+		}
+		NetGravity = MaxGravityVector;
+	}
+	else {
+		NetGravity = FVector::ZeroVector;
+		for (AGravityZone* Zone : PriorityZones) {
+			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
+			NetGravity += ZoneGravity;
+		}
+	}
+
 	return NetGravity;
+}
+
+FVector UGravityManager::CalculateMaxDampingVectorForActor(AActor* AffectedActor) const
+{
+	FVector MaxDamping = FVector::ZeroVector;
+	if (!AffectedActor) return MaxDamping;
+	FVector ActorLocation = AffectedActor->GetActorLocation();
+	const TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor);
+	for (AGravityZone* Zone : *OverlappingZones) {
+		MaxDamping.X = FMath::Max(MaxDamping.X, Zone->GetLinearDampening(ActorLocation));
+		MaxDamping.Y = FMath::Max(MaxDamping.Y, Zone->GetAngularDampening(ActorLocation));
+		//Z could be used as a blend factor or multiplier or something...
+	}
+
+	return MaxDamping;
+}
+
+void UGravityManager::ApplyDampingToActorComponents(AActor* AffectedActor, const FVector& DampingVector)
+{
+	if (!AffectedActor) return;
+	// --- Case 1: Third Person Gravity Character ---
+	if (ACharacter* Character = Cast<ACharacter>(AffectedActor))
+	{
+		USkeletalMeshComponent* SkMesh = Character->GetMesh();
+		if (SkMesh && SkMesh->IsSimulatingPhysics()) {
+			for (auto Body : SkMesh->Bodies) {
+				Body->LinearDamping = DampingVector.X;
+				Body->AngularDamping = DampingVector.Y;
+			}
+			return;
+		}
+		UPrimitiveComponent* PrimRoot = Cast<UPrimitiveComponent>(Character->GetRootComponent());
+		if (PrimRoot) {
+			PrimRoot->SetLinearDamping(DampingVector.X);
+			PrimRoot->SetAngularDamping(DampingVector.Y);
+		}
+		return;
+	}
+
+	// --- Case 2: Primitive Components ---
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	AffectedActor->GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+	for (UPrimitiveComponent* PrimComp : PrimitiveComponents)
+	{
+		if (PrimComp && PrimComp->IsSimulatingPhysics() && !PrimComp->IsGravityEnabled())
+		{
+			PrimComp->SetLinearDamping(DampingVector.X);
+			PrimComp->SetAngularDamping(DampingVector.Y);
+		}
+	}
 }
 
 void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const FVector& NetGravityVector)
@@ -188,6 +263,7 @@ void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const
 			for (auto Body : SkMesh->Bodies) {
 				Body->AddForce(Body->GetBodyMass() * Body->MassScale * NetGravityVector);
 			}
+			return;
 		} else if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
 		{
 			MovementComp->GravityScale = NetGravityVector.Size() / 980.0; // Assuming 1.0 is the default scale, 9.8 m/s as our baseline

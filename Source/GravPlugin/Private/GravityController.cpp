@@ -10,8 +10,11 @@ void AGravityController::UpdateRotation(float DeltaTime)
     {
         if (UCharacterMovementComponent* MoveComp = PlayerCharacter->GetCharacterMovement())
         {
-            //Transition towards the desired gravity vector
-            GravityDirection = FMath::Lerp(LastFrameGravity, MoveComp->GetGravityDirection(), DeltaTime * DeltaSmoothing);
+            if (MoveComp->IsFalling()) {
+                GravityDirection = FMath::Lerp(LastFrameGravity, MoveComp->GetGravityDirection(), DeltaTime * 1 / DeltaSmoothing);
+            } else {
+                GravityDirection = LastFrameGravity;
+            }
         }
     }
 

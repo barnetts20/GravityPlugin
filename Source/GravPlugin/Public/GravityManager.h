@@ -24,6 +24,9 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
+	bool UseGravity = true; //Can toggle to disable gravity feature
+	bool UseDampen = true;  //Can toggle to disable dampen feature
+
 	// --- Gravity Zone Management ---
 	UFUNCTION(BlueprintCallable, Category = "Gravity Manager")
 	void RegisterGravityZone(AGravityZone* GravityZone);
@@ -55,5 +58,7 @@ private:
 
 	// --- Gravity Application Logic ---
 	FVector CalculateNetGravityVectorForActor(AActor* AffectedActor) const;
+	FVector CalculateMaxDampingVectorForActor(AActor* AffectedActor) const;
+	void ApplyDampingToActorComponents(AActor* AffectedActor, const FVector& DampingVector);
 	void ApplyGravityToActorComponents(AActor* AffectedActor, const FVector& NetGravityVector);
 };
