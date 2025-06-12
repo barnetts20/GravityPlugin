@@ -87,6 +87,12 @@ void UGravityManager::NotifyObjectEnteredZone(AActor* AffectedActor, AGravityZon
 {
 	if (AffectedActor && GravityZone && (Cast<ACharacter>(AffectedActor) || AffectedActor->FindComponentByClass<UPrimitiveComponent>()))
 	{
+		// Check if any tag of the AffectedActor is in the ExcludeTags list
+		for (const auto Tag : AffectedActor->Tags)
+		{
+			if (GravityZone->ExcludeTags.Contains(Tag)) return;
+		}
+
 		ActorZoneOverlaps.FindOrAdd(AffectedActor).Add(GravityZone);
 	}
 }
@@ -129,7 +135,7 @@ TStatId UGravityManager::GetStatId() const
 FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor) const
 {
 	FVector NetGravity = FVector::ZeroVector;
-
+	FVector MaxGravity = FVector::ZeroVector;
 	//Early termination conditions
 	if (!AffectedActor) return NetGravity;
 	const TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor);
@@ -159,13 +165,17 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 			if (Zone->Priority > HighestPriority)
 			{
 				NetGravity = FVector::ZeroVector;
+				MaxGravity = FVector::ZeroVector;
 				HighestPriority = Zone->Priority;
 				NetGravity = ZoneGravity;
+				MaxGravity = ZoneGravity;
 			}
 			else if (Zone->Priority == HighestPriority) {
+				MaxGravity = (MaxGravity.Size() < ZoneGravity.Size() ? ZoneGravity : MaxGravity);
 				//If it is a character and the character is "grounded" we only apply the strongest gravity vector
-				if (bIsCharacterGrounded && NetGravity.Size() < ZoneGravity.Size()) {
-					NetGravity = ZoneGravity;
+				//This stops the character from "leaning" towards the shared center of gravity when walking on an object
+				if (bIsCharacterGrounded) {
+					NetGravity = MaxGravity;
 				}
 				else {
 					NetGravity += ZoneGravity;

@@ -31,6 +31,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
 	int Priority;
 
+	//The zone priority, only the highest level zones an actor occupies will apply force
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
+	TArray<FString> ExcludeTags;
+
 	//Defines a base vector, depending on implementation of GetGravityVector, this could be used directly, could be used to derive a magnitude, direction, etc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
 	FVector BaseVector;
