@@ -8,7 +8,7 @@
 #include "Engine/Engine.h"
 
 // --- Subsystem Lifecycle ---
-void UGravityManager::Initialize(FSubsystemCollectionBase& Collection) // Make sure this matches your class name
+void UGravityManager::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	if (UWorld* World = GetWorld())
@@ -26,18 +26,18 @@ void UGravityManager::Initialize(FSubsystemCollectionBase& Collection) // Make s
 			}
 		}
 	}
-	UE_LOG(LogTemp, Log, TEXT("GravityManager Initialized")); // Use your class name in logs
+	UE_LOG(LogTemp, Log, TEXT("GravityManager Initialized"));
 }
 
-void UGravityManager::Deinitialize() // Make sure this matches your class name
+void UGravityManager::Deinitialize()
 {
-	UE_LOG(LogTemp, Log, TEXT("GravityManager Deinitialized")); // Use your class name in logs
+	UE_LOG(LogTemp, Log, TEXT("GravityManager Deinitialized"));
 	RegisteredGravityZones.Empty();
 	ActorZoneOverlaps.Empty();
 	Super::Deinitialize();
 }
 
-bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const // Make sure this matches your class name
+bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const
 {
 	if (UWorld* World = Cast<UWorld>(Outer))
 	{
@@ -47,7 +47,7 @@ bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const // Make sure t
 }
 
 // --- Gravity Zone Management ---
-void UGravityManager::RegisterGravityZone(AGravityZone* GravityZone) // Make sure this matches your class name
+void UGravityManager::RegisterGravityZone(AGravityZone* GravityZone)
 {
 	if (GravityZone)
 	{
@@ -61,23 +61,27 @@ void UGravityManager::RegisterGravityZone(AGravityZone* GravityZone) // Make sur
 		UE_LOG(LogTemp, Log, TEXT("Registered Gravity Zone: %s"), *GravityZone->GetName());
 	}
 }
-void UGravityManager::UnregisterGravityZone(AGravityZone* GravityZone) // Make sure this matches your class name
+void UGravityManager::UnregisterGravityZone(AGravityZone* GravityZone)
 {
 	if (GravityZone)
 	{
 		RegisteredGravityZones.Remove(GravityZone);
+
+		// Remove this zone from all actor overlap sets, and clean up empty entries
+		TArray<AActor*> ActorsToRemove;
 		for (auto& Pair : ActorZoneOverlaps)
 		{
 			Pair.Value.Remove(GravityZone);
-		}
-		ActorZoneOverlaps.Remove(nullptr);
-		for (auto It = ActorZoneOverlaps.CreateIterator(); It; ++It)
-		{
-			if (It.Value().Num() == 0)
+			if (Pair.Value.Num() == 0)
 			{
-				It.RemoveCurrent();
+				ActorsToRemove.Add(Pair.Key);
 			}
 		}
+		for (AActor* Actor : ActorsToRemove)
+		{
+			ActorZoneOverlaps.Remove(Actor);
+		}
+
 		UE_LOG(LogTemp, Log, TEXT("Unregistered Gravity Zone: %s"), *GravityZone->GetName());
 	}
 }
@@ -104,6 +108,10 @@ void UGravityManager::NotifyObjectLeftZone(AActor* AffectedActor, AGravityZone* 
 		if (TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor))
 		{
 			OverlappingZones->Remove(GravityZone);
+			if (OverlappingZones->Num() == 0)
+			{
+				ActorZoneOverlaps.Remove(AffectedActor);
+			}
 		}
 	}
 }
@@ -116,7 +124,7 @@ void UGravityManager::Tick(float DeltaTime)
 
 	for (AActor* AffectedActor : ActorsToProcess)
 	{
-		if (!AffectedActor)
+		if (!IsValid(AffectedActor))
 		{
 			ActorZoneOverlaps.Remove(AffectedActor);
 			continue;
@@ -171,7 +179,7 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 				MaxGravity = ZoneGravity;
 			}
 			else if (Zone->Priority == HighestPriority) {
-				MaxGravity = (MaxGravity.Size() < ZoneGravity.Size() ? ZoneGravity : MaxGravity);
+				MaxGravity = (MaxGravity.SizeSquared() < ZoneGravity.SizeSquared() ? ZoneGravity : MaxGravity);
 				//If it is a character and the character is "grounded" we only apply the strongest gravity vector
 				//This stops the character from "leaning" towards the shared center of gravity when walking on an object
 				if (bIsCharacterGrounded) {
@@ -181,7 +189,7 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 					NetGravity += ZoneGravity;
 				}
 			}
-		}	
+		}
 	}
 	return NetGravity;
 }
@@ -198,7 +206,8 @@ void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const
 			for (auto Body : SkMesh->Bodies) {
 				Body->AddForce(Body->GetBodyMass() * Body->MassScale * NetGravityVector);
 			}
-		} else if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+		}
+		else if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
 		{
 			MovementComp->GravityScale = NetGravityVector.Size() / 980.0; // Assuming 1.0 is the default scale, 9.8 m/s as our baseline
 			auto gravDir = NetGravityVector.GetSafeNormal();
@@ -214,16 +223,28 @@ void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const
 	{
 		if (PrimComp && PrimComp->IsSimulatingPhysics() && !PrimComp->IsGravityEnabled())
 		{
-			if (float Mass = PrimComp->GetMass() > KINDA_SMALL_NUMBER && !NetGravityVector.IsNearlyZero())
+			// FIX: Original had `float Mass = PrimComp->GetMass() > KINDA_SMALL_NUMBER`
+			// which assigned the bool result of the comparison (0 or 1) to Mass,
+			// not the actual mass. Physics objects were getting near-zero gravity.
+			const float Mass = PrimComp->GetMass();
+			if (Mass > KINDA_SMALL_NUMBER && !NetGravityVector.IsNearlyZero())
 			{
 				FVector GravityForce = NetGravityVector * Mass * PrimComp->GetMassScale();
-				PrimComp->AddImpulse(GravityForce, NAME_None, false);
+				// FIX: AddForce instead of AddImpulse. Gravity is a continuous
+				// force, not a one-time velocity change. AddImpulse caused
+				// frame-rate-dependent gravity strength.
+				PrimComp->AddForce(GravityForce, NAME_None, false);
 			}
 		}
 	}
 }
 
 // --- Blueprint Access ---
+FVector UGravityManager::GetGravityVectorForActor(AActor* Actor) const
+{
+	return CalculateNetGravityVectorForActor(Actor);
+}
+
 UGravityManager* UGravityManager::GetGravityManagerSubsystem(const UObject* WorldContextObject)
 {
 	if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull))

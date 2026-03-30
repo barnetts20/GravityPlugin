@@ -11,8 +11,8 @@ UCLASS()
 class GRAVPLUGIN_API AGravityZone : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	AGravityZone();
 
 protected:
@@ -29,11 +29,11 @@ protected:
 public:
 	//The zone priority, only the highest level zones an actor occupies will apply force
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
-	int Priority;
+	int32 Priority;
 
-	//The zone priority, only the highest level zones an actor occupies will apply force
+	//Actors with any of these tags will be excluded from this zone's gravity (matches AActor::Tags type)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
-	TArray<FString> ExcludeTags;
+	TArray<FName> ExcludeTags;
 
 	//Defines a base vector, depending on implementation of GetGravityVector, this could be used directly, could be used to derive a magnitude, direction, etc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
