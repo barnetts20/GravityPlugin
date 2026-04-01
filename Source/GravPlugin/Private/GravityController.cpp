@@ -10,49 +10,55 @@ void AGravityController::UpdateRotation(float DeltaTime)
     {
         if (UCharacterMovementComponent* MoveComp = PlayerCharacter->GetCharacterMovement())
         {
-            //Transition towards the desired gravity vector
-            GravityDirection = FMath::Lerp(LastFrameGravity, MoveComp->GetGravityDirection(), DeltaTime * DeltaSmoothing);
+            FVector TargetGravity = MoveComp->GetGravityDirection();
+            // Smoothly transition toward the current gravity direction.
+            // Normalize after lerp to prevent drift off unit length.
+            GravityDirection = FMath::Lerp(LastFrameGravity, TargetGravity, FMath::Clamp(DeltaTime * DeltaSmoothing, 0.0, 1.0));
+            if (!GravityDirection.Normalize())
+            {
+                GravityDirection = TargetGravity;
+            }
         }
     }
 
-    // Get the current control rotation in world space
+    // Get the current control rotation and convert to gravity-relative space
     FRotator ViewRotation = GetControlRotation();
-    Pitch += RotationInput.Pitch;
-    Pitch = FMath::Clamp(Pitch, -MaxPitch, MaxPitch);
-    if (!LastFrameGravity.Equals(GravityDirection))
-    {
-        const FQuat CurrentRotationQuat = FQuat::FindBetweenNormals(LastFrameGravity, GravityDirection);
-        FQuat TargetRotationQuat = CurrentRotationQuat * FQuat(ViewRotation);
 
-        // Interpolate using Slerp for smooth transition
-        FQuat SmoothedRotation = FQuat::Slerp(FQuat(ViewRotation), TargetRotationQuat, DeltaTime);
-        ViewRotation = SmoothedRotation.Rotator();
+    // If gravity direction changed, rotate the view to follow the gravity shift.
+    // Work in quaternion space for stability.
+    if (!LastFrameGravity.Equals(GravityDirection, 0.0001))
+    {
+        FQuat GravityShift = FQuat::FindBetweenNormals(LastFrameGravity, GravityDirection);
+        ViewRotation = (GravityShift * ViewRotation.Quaternion()).Rotator();
     }
 
     LastFrameGravity = GravityDirection;
 
-    // Convert the view rotation from world space to gravity relative space
-    ViewRotation = GetGravityRelativeRotation(ViewRotation, GravityDirection);
+    // Convert to gravity-relative space for pitch/roll manipulation
+    FRotator GravRelativeView = GetGravityRelativeRotation(ViewRotation, GravityDirection);
 
-    FRotator DeltaRot(RotationInput);
+    // Accumulate pitch input and apply yaw from RotationInput
+    Pitch += RotationInput.Pitch;
+    Pitch = FMath::Clamp(Pitch, -MaxPitch, MaxPitch);
+
+    // Force pitch from our accumulator, zero roll to stay level with gravity,
+    // and apply yaw input.
+    GravRelativeView.Pitch = Pitch;
+    GravRelativeView.Roll = 0.0;
+    GravRelativeView.Yaw += RotationInput.Yaw;
+
+    // Convert back to world space
+    FRotator WorldViewRotation = GetGravityWorldRotation(GravRelativeView, GravityDirection);
 
     if (PlayerCameraManager)
     {
-        ACharacter* PlayerCharacter = Cast<ACharacter>(GetPawn());
-
-        // Keep the camera roll level with gravity
-        ViewRotation.Roll = 0;
-        ViewRotation.Pitch = Pitch;
-
-        // Convert back to world space
-        PlayerCameraManager->ProcessViewRotation(DeltaTime, ViewRotation, DeltaRot);
-        SetControlRotation(GetGravityWorldRotation(ViewRotation, GravityDirection));
+        SetControlRotation(WorldViewRotation);
     }
 
     APawn* const P = GetPawnOrSpectator();
     if (P)
     {
-        P->FaceRotation(ViewRotation, DeltaTime);
+        P->FaceRotation(WorldViewRotation, DeltaTime);
     }
 }
 
