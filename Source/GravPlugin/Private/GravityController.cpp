@@ -79,3 +79,24 @@ FRotator AGravityController::GetGravityWorldRotation(FRotator Rotation, FVector 
 
     return Rotation;
 }
+
+FRotator AGravityController::GetDesiredMovementRotation() const
+{
+    // Get the current gravity direction
+    FVector GravityDirection = FVector::DownVector;
+    if (ACharacter* PlayerCharacter = Cast<ACharacter>(GetPawn()))
+    {
+        if (UCharacterMovementComponent* MoveComp = PlayerCharacter->GetCharacterMovement())
+        {
+            GravityDirection = MoveComp->GetGravityDirection();
+        }
+    }
+
+    // Convert control rotation to gravity-relative space, zero out pitch,
+    // then convert back. This gives us the yaw-only rotation on the gravity
+    // plane — movement direction is independent of where the camera looks vertically.
+    FRotator GravRelative = GetGravityRelativeRotation(GetControlRotation(), GravityDirection);
+    GravRelative.Pitch = 0.0;
+    GravRelative.Roll = 0.0;
+    return GetGravityWorldRotation(GravRelative, GravityDirection);
+}
