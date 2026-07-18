@@ -8,7 +8,7 @@
 #include "Engine/Engine.h"
 
 // --- Subsystem Lifecycle ---
-void UGravityManager::Initialize(FSubsystemCollectionBase& Collection) // Make sure this matches your class name
+void UGravityManager::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	if (UWorld* World = GetWorld())
@@ -26,18 +26,18 @@ void UGravityManager::Initialize(FSubsystemCollectionBase& Collection) // Make s
 			}
 		}
 	}
-	UE_LOG(LogTemp, Log, TEXT("GravityManager Initialized")); // Use your class name in logs
+	UE_LOG(LogTemp, Log, TEXT("GravityManager Initialized"));
 }
 
-void UGravityManager::Deinitialize() // Make sure this matches your class name
+void UGravityManager::Deinitialize()
 {
-	UE_LOG(LogTemp, Log, TEXT("GravityManager Deinitialized")); // Use your class name in logs
+	UE_LOG(LogTemp, Log, TEXT("GravityManager Deinitialized"));
 	RegisteredGravityZones.Empty();
 	ActorZoneOverlaps.Empty();
 	Super::Deinitialize();
 }
 
-bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const // Make sure this matches your class name
+bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const
 {
 	if (UWorld* World = Cast<UWorld>(Outer))
 	{
@@ -47,7 +47,7 @@ bool UGravityManager::ShouldCreateSubsystem(UObject* Outer) const // Make sure t
 }
 
 // --- Gravity Zone Management ---
-void UGravityManager::RegisterGravityZone(AGravityZone* GravityZone) // Make sure this matches your class name
+void UGravityManager::RegisterGravityZone(AGravityZone* GravityZone)
 {
 	if (GravityZone)
 	{
@@ -61,23 +61,27 @@ void UGravityManager::RegisterGravityZone(AGravityZone* GravityZone) // Make sur
 		UE_LOG(LogTemp, Log, TEXT("Registered Gravity Zone: %s"), *GravityZone->GetName());
 	}
 }
-void UGravityManager::UnregisterGravityZone(AGravityZone* GravityZone) // Make sure this matches your class name
+void UGravityManager::UnregisterGravityZone(AGravityZone* GravityZone)
 {
 	if (GravityZone)
 	{
 		RegisteredGravityZones.Remove(GravityZone);
+
+		// Remove this zone from all actor overlap sets, and clean up empty entries
+		TArray<AActor*> ActorsToRemove;
 		for (auto& Pair : ActorZoneOverlaps)
 		{
 			Pair.Value.Remove(GravityZone);
-		}
-		ActorZoneOverlaps.Remove(nullptr);
-		for (auto It = ActorZoneOverlaps.CreateIterator(); It; ++It)
-		{
-			if (It.Value().Num() == 0)
+			if (Pair.Value.Num() == 0)
 			{
-				It.RemoveCurrent();
+				ActorsToRemove.Add(Pair.Key);
 			}
 		}
+		for (AActor* Actor : ActorsToRemove)
+		{
+			ActorZoneOverlaps.Remove(Actor);
+		}
+
 		UE_LOG(LogTemp, Log, TEXT("Unregistered Gravity Zone: %s"), *GravityZone->GetName());
 	}
 }
@@ -87,12 +91,12 @@ void UGravityManager::NotifyObjectEnteredZone(AActor* AffectedActor, AGravityZon
 {
 	if (AffectedActor && GravityZone && (Cast<ACharacter>(AffectedActor) || AffectedActor->FindComponentByClass<UPrimitiveComponent>()))
 	{
-		FPermissionListOwners ActorTags = AffectedActor->Tags;
-		for (FName ATag : ActorTags) {
-			if (GravityZone->ExclusionTags.Contains(ATag)) {
-				return;
-			}
+		// Check if any tag of the AffectedActor is in the ExcludeTags list
+		for (const auto Tag : AffectedActor->Tags)
+		{
+			if (GravityZone->ExcludeTags.Contains(Tag)) return;
 		}
+
 		ActorZoneOverlaps.FindOrAdd(AffectedActor).Add(GravityZone);
 	}
 }
@@ -104,6 +108,10 @@ void UGravityManager::NotifyObjectLeftZone(AActor* AffectedActor, AGravityZone* 
 		if (TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor))
 		{
 			OverlappingZones->Remove(GravityZone);
+			if (OverlappingZones->Num() == 0)
+			{
+				ActorZoneOverlaps.Remove(AffectedActor);
+			}
 		}
 	}
 }
@@ -116,19 +124,13 @@ void UGravityManager::Tick(float DeltaTime)
 
 	for (AActor* AffectedActor : ActorsToProcess)
 	{
-		if (!AffectedActor)
+		if (!IsValid(AffectedActor))
 		{
 			ActorZoneOverlaps.Remove(AffectedActor);
 			continue;
 		}
-		if (UseGravity) {
-			FVector NetGravityVector = CalculateNetGravityVectorForActor(AffectedActor);
-			ApplyGravityToActorComponents(AffectedActor, NetGravityVector);
-		}
-		if (UseDampen) {
-			FVector MaxDampenVector = CalculateMaxDampingVectorForActor(AffectedActor);
-			ApplyDampingToActorComponents(AffectedActor, MaxDampenVector);
-		}
+		FVector NetGravityVector = CalculateNetGravityVectorForActor(AffectedActor);
+		ApplyGravityToActorComponents(AffectedActor, NetGravityVector);
 	}
 }
 
@@ -141,7 +143,7 @@ TStatId UGravityManager::GetStatId() const
 FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor) const
 {
 	FVector NetGravity = FVector::ZeroVector;
-
+	FVector MaxGravity = FVector::ZeroVector;
 	//Early termination conditions
 	if (!AffectedActor) return NetGravity;
 	const TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor);
@@ -164,91 +166,32 @@ FVector UGravityManager::CalculateNetGravityVectorForActor(AActor* AffectedActor
 	//Accumulate gravity in one pass
 	FVector ActorLocation = AffectedActor->GetActorLocation();
 	int32 HighestPriority = -INT_MAX;
-	TArray<AGravityZone*> PriorityZones;
 	for (AGravityZone* Zone : *OverlappingZones)
 	{
 		if (Zone) {
+			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
 			if (Zone->Priority > HighestPriority)
 			{
+				NetGravity = FVector::ZeroVector;
+				MaxGravity = FVector::ZeroVector;
 				HighestPriority = Zone->Priority;
-				PriorityZones.Empty();
-				PriorityZones.Add(Zone);
+				NetGravity = ZoneGravity;
+				MaxGravity = ZoneGravity;
 			}
 			else if (Zone->Priority == HighestPriority) {
-				PriorityZones.Add(Zone);
-
-			}
-		}	
-	}
-	if (bIsCharacterGrounded) {
-		FVector MaxGravityVector = FVector::ZeroVector;
-		for (AGravityZone* Zone : PriorityZones) {
-			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
-			if (MaxGravityVector.Size() < ZoneGravity.Size()) {
-				MaxGravityVector = ZoneGravity;
+				MaxGravity = (MaxGravity.SizeSquared() < ZoneGravity.SizeSquared() ? ZoneGravity : MaxGravity);
+				//If it is a character and the character is "grounded" we only apply the strongest gravity vector
+				//This stops the character from "leaning" towards the shared center of gravity when walking on an object
+				if (bIsCharacterGrounded) {
+					NetGravity = MaxGravity;
+				}
+				else {
+					NetGravity += ZoneGravity;
+				}
 			}
 		}
-		NetGravity = MaxGravityVector;
 	}
-	else {
-		NetGravity = FVector::ZeroVector;
-		for (AGravityZone* Zone : PriorityZones) {
-			FVector ZoneGravity = Zone->GetGravityVector(ActorLocation);
-			NetGravity += ZoneGravity;
-		}
-	}
-
 	return NetGravity;
-}
-
-FVector UGravityManager::CalculateMaxDampingVectorForActor(AActor* AffectedActor) const
-{
-	FVector MaxDamping = FVector::ZeroVector;
-	if (!AffectedActor) return MaxDamping;
-	FVector ActorLocation = AffectedActor->GetActorLocation();
-	const TSet<AGravityZone*>* OverlappingZones = ActorZoneOverlaps.Find(AffectedActor);
-	for (AGravityZone* Zone : *OverlappingZones) {
-		MaxDamping.X = FMath::Max(MaxDamping.X, Zone->GetLinearDampening(ActorLocation));
-		MaxDamping.Y = FMath::Max(MaxDamping.Y, Zone->GetAngularDampening(ActorLocation));
-		//Z could be used as a blend factor or multiplier or something...
-	}
-
-	return MaxDamping;
-}
-
-void UGravityManager::ApplyDampingToActorComponents(AActor* AffectedActor, const FVector& DampingVector)
-{
-	if (!AffectedActor) return;
-	// --- Case 1: Third Person Gravity Character ---
-	if (ACharacter* Character = Cast<ACharacter>(AffectedActor))
-	{
-		USkeletalMeshComponent* SkMesh = Character->GetMesh();
-		if (SkMesh && SkMesh->IsSimulatingPhysics()) {
-			for (auto Body : SkMesh->Bodies) {
-				Body->LinearDamping = DampingVector.X;
-				Body->AngularDamping = DampingVector.Y;
-			}
-			return;
-		}
-		UPrimitiveComponent* PrimRoot = Cast<UPrimitiveComponent>(Character->GetRootComponent());
-		if (PrimRoot) {
-			PrimRoot->SetLinearDamping(DampingVector.X);
-			PrimRoot->SetAngularDamping(DampingVector.Y);
-		}
-		return;
-	}
-
-	// --- Case 2: Primitive Components ---
-	TArray<UPrimitiveComponent*> PrimitiveComponents;
-	AffectedActor->GetComponents<UPrimitiveComponent>(PrimitiveComponents);
-	for (UPrimitiveComponent* PrimComp : PrimitiveComponents)
-	{
-		if (PrimComp && PrimComp->IsSimulatingPhysics() && !PrimComp->IsGravityEnabled())
-		{
-			PrimComp->SetLinearDamping(DampingVector.X);
-			PrimComp->SetAngularDamping(DampingVector.Y);
-		}
-	}
 }
 
 void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const FVector& NetGravityVector)
@@ -263,8 +206,8 @@ void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const
 			for (auto Body : SkMesh->Bodies) {
 				Body->AddForce(Body->GetBodyMass() * Body->MassScale * NetGravityVector);
 			}
-			return;
-		} else if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+		}
+		else if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
 		{
 			MovementComp->GravityScale = NetGravityVector.Size() / 980.0; // Assuming 1.0 is the default scale, 9.8 m/s as our baseline
 			auto gravDir = NetGravityVector.GetSafeNormal();
@@ -280,16 +223,28 @@ void UGravityManager::ApplyGravityToActorComponents(AActor* AffectedActor, const
 	{
 		if (PrimComp && PrimComp->IsSimulatingPhysics() && !PrimComp->IsGravityEnabled())
 		{
-			if (float Mass = PrimComp->GetMass() > KINDA_SMALL_NUMBER && !NetGravityVector.IsNearlyZero())
+			// FIX: Original had `float Mass = PrimComp->GetMass() > KINDA_SMALL_NUMBER`
+			// which assigned the bool result of the comparison (0 or 1) to Mass,
+			// not the actual mass. Physics objects were getting near-zero gravity.
+			const float Mass = PrimComp->GetMass();
+			if (Mass > KINDA_SMALL_NUMBER && !NetGravityVector.IsNearlyZero())
 			{
 				FVector GravityForce = NetGravityVector * Mass * PrimComp->GetMassScale();
-				PrimComp->AddImpulse(GravityForce, NAME_None, false);
+				// FIX: AddForce instead of AddImpulse. Gravity is a continuous
+				// force, not a one-time velocity change. AddImpulse caused
+				// frame-rate-dependent gravity strength.
+				PrimComp->AddForce(GravityForce, NAME_None, false);
 			}
 		}
 	}
 }
 
 // --- Blueprint Access ---
+FVector UGravityManager::GetGravityVectorForActor(AActor* Actor) const
+{
+	return CalculateNetGravityVectorForActor(Actor);
+}
+
 UGravityManager* UGravityManager::GetGravityManagerSubsystem(const UObject* WorldContextObject)
 {
 	if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull))

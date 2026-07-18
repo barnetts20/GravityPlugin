@@ -15,12 +15,18 @@ class AGravityController : public APlayerController
 
 public:
 	double Pitch = 0; //Track input pitch accumulation independantly from controller rotation
-	double MaxPitch = 70; //Max camera pitch, at >= 90 gimbal locking can occur
-	double DeltaSmoothing = .1; //Estimated duration of transition between gravity vectors in seconds
+	double MaxPitch = 89; //Max camera pitch, just under 90 to avoid gimbal lock at the poles
+	double DeltaSmoothing = 10; //10 means changes between gravity vectors will transition over approx. .1 sec, 100 .01 etc
 
 	FVector TransitionGravityDirection = FVector::DownVector;
 
 	virtual void UpdateRotation(float DeltaTime) override;
+
+	/** Returns the control rotation with pitch zeroed in gravity-relative space.
+	 *  Use this for movement input direction instead of GetControlRotation()
+	 *  so that looking up/down doesn't affect movement speed. */
+	UFUNCTION(BlueprintPure, Category = "Gravity")
+	FRotator GetDesiredMovementRotation() const;
 
 	// Converts a rotation from world space to gravity relative space.
 	UFUNCTION(BlueprintPure)

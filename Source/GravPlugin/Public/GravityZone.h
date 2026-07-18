@@ -11,8 +11,8 @@ UCLASS()
 class GRAVPLUGIN_API AGravityZone : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	AGravityZone();
 
 protected:
@@ -29,30 +29,17 @@ protected:
 public:
 	//The zone priority, only the highest level zones an actor occupies will apply force
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
-	int Priority;
+	int32 Priority;
+
+	//Actors with any of these tags will be excluded from this zone's gravity (matches AActor::Tags type)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
+	TArray<FName> ExcludeTags;
 
 	//Defines a base vector, depending on implementation of GetGravityVector, this could be used directly, could be used to derive a magnitude, direction, etc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
 	FVector BaseVector;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
-	float LinearDamping; // Linear damping applied to physics objects in this zone
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
-	float AngularDamping; // Angular damping applied to physics objects in this zone
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravity Zone")
-	TArray<FString> ExclusionTags; // Angular damping applied to physics objects in this zone
-
 	//Override to change the way the gravity is calculated given an obect at a world position
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Gravity Zone")
 	FVector GetGravityVector(const FVector& InWorldPosition) const;
-
-	//Override to change the way the gravity is calculated given an obect at a world position
-	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Gravity Zone")
-	double GetLinearDampening(const FVector& InWorldPosition) const;
-
-	//Override to change the way the gravity is calculated given an obect at a world position
-	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Gravity Zone")
-	double GetAngularDampening(const FVector& InWorldPosition) const;
 };

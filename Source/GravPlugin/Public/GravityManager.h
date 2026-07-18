@@ -15,7 +15,7 @@ class AActor;
  * Functions are exposed to Blueprint for easier interaction.
  */
 UCLASS(Blueprintable)
-class UGravityManager : public UTickableWorldSubsystem
+class GRAVPLUGIN_API UGravityManager : public UTickableWorldSubsystem
 {
 	GENERATED_BODY()
 
@@ -49,6 +49,10 @@ public:
 	// --- Blueprint Access ---
 	UFUNCTION(BlueprintPure, Category = "Gravity Manager", meta = (WorldContext = "WorldContextObject"))
 	static UGravityManager* GetGravityManagerSubsystem(const UObject* WorldContextObject);
+
+	/** Returns the current net gravity vector for an actor based on its overlapping zones. */
+	UFUNCTION(BlueprintPure, Category = "Gravity Manager")
+	FVector GetGravityVectorForActor(AActor* Actor) const;
 
 
 private:

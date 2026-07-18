@@ -6,7 +6,7 @@
 // Sets default values
 AGravityZone::AGravityZone()
 {
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 	Priority = 0;
 	BaseVector = FVector(0, 0, -980);
 	LinearDamping = .05;
